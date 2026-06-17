@@ -1,0 +1,1 @@
+"""GeoAtlas data collection service."""

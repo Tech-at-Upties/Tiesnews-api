@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GeoAtlas Source Console</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <p class="eyebrow">GeoAtlas data collection</p>
+          <h1>GeoAtlas Source Console</h1>
+        </div>
+        <div class="top-actions">
+          <div class="status" id="timeZoneStatus">Detecting time zone</div>
+          <div class="status" id="healthStatus">Checking API</div>
+          <a class="docs-link" href="/docs" target="_blank" rel="noreferrer">API docs</a>
+        </div>
+      </section>
+
+      <section class="notice" id="messageBar" hidden></section>
+
+      <section class="workspace">
+        <form class="panel source-form" id="detectForm">
+          <div class="panel-heading">
+            <div>
+              <h2>Add RSS feed</h2>
+              <p>Paste an RSS/Atom URL or a website URL that advertises a feed.</p>
+            </div>
+          </div>
+
+          <label>
+            Admin key
+            <div class="secret-row">
+              <input id="adminKey" type="password" autocomplete="off" placeholder="Generated GeoAtlas admin key" />
+              <button type="button" id="toggleKey" aria-label="Show admin key">Show</button>
+            </div>
+            <span class="hint">Generate one with <code>python scripts\generate_admin_key.py --name local-admin</code>.</span>
+          </label>
+
+          <label>
+            Feed or website URL
+            <input id="feedUrl" type="url" required placeholder="https://example.org/rss.xml" />
+          </label>
+
+          <div class="grid-two">
+            <label>
+              Source name
+              <input id="sourceName" type="text" placeholder="Auto from feed title" />
+            </label>
+            <label>
+              Fetch interval
+              <input id="interval" type="number" min="5" max="1440" value="30" />
+            </label>
+          </div>
+
+          <div class="grid-two">
+            <label>
+              Reliability
+              <input id="reliability" type="number" min="0" max="1" step="0.05" value="0.7" />
+            </label>
+            <label>
+              Category scope
+              <input id="categories" type="text" placeholder="conflict,humanitarian" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="primary">Detect</button>
+            <button type="button" id="saveSource" disabled>Save source</button>
+            <button type="button" id="clearForm">Clear</button>
+          </div>
+        </form>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Detection</h2>
+              <p>Backend-detected metadata and sample items.</p>
+            </div>
+          </div>
+          <div id="detectionResult" class="empty">No feed detected yet.</div>
+        </section>
+      </section>
+
+      <section class="workspace lower">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Sources</h2>
+              <p>Manage collection sources and trigger ingestion.</p>
+            </div>
+            <div class="button-group">
+              <button type="button" id="refreshSources">Refresh</button>
+            </div>
+          </div>
+          <div class="toolbar">
+            <input id="sourceSearch" type="search" placeholder="Search sources" />
+            <select id="sourceStatus">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="failing">Failing</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div id="sourceList" class="source-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Output</h2>
+              <p>Public API preview. This is the output surface instead of a news frontend.</p>
+            </div>
+            <div class="button-group">
+              <button type="button" id="copyOutput">Copy</button>
+              <button type="button" id="refreshOutput">Refresh</button>
+            </div>
+          </div>
+          <div class="endpoint-row">
+            <code>/api/v1/public/items</code>
+            <code>/api/v1/public/export.json</code>
+          </div>
+          <div class="toolbar output-toolbar">
+            <select id="outputSource">
+              <option value="">All sources</option>
+            </select>
+            <span class="meta" id="outputSummary">No output loaded.</span>
+          </div>
+          <pre id="outputPreview" class="json-preview">{}</pre>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

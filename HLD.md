@@ -1,5 +1,7 @@
 # GeoAtlas Backend High Level Design
 
+Project work history is maintained in [documentation.md](documentation.md). The runnable data-collection backend is in [backend/](backend/) and implementation notes are in [docs/GEOATLAS_DATA_COLLECTION_IMPLEMENTATION.md](docs/GEOATLAS_DATA_COLLECTION_IMPLEMENTATION.md).
+
 ## 1. Purpose
 
 GeoAtlas is a production-ready Geo-Intelligence and Conflict Monitoring Platform. It tracks geopolitical, crisis, security, humanitarian, cyber, natural disaster, and instability events from automated external sources and analyst/admin workflows.
@@ -28,15 +30,16 @@ In scope:
 | Data ingestion | Scheduled and manual fetching, connector execution, raw storage, normalization, event extraction, deduplication, risk scoring. |
 | Human review | Analyst/admin event approval, rejection, edit-before-approval, merge duplicate, verification updates. |
 | AI assistance | Summaries, categories, locations, risk suggestions, verification suggestions, duplicate candidates, timelines, entity extraction. |
-| Persistence | PostgreSQL relational model with geospatial-ready event location support. |
+| Persistence | Supabase PostgreSQL with PostGIS for relational storage, raw payload retention, geospatial event locations, full-text search, and public API read models. |
 | Caching and coordination | Redis for cache, rate limits, ingestion locks, and background coordination. |
 | Operations | Health checks, logs, monitoring, backup, rollback, migration, and service process design. |
+| Source administration UI | A small internal frontend for adding RSS/feed links, testing feed detection, viewing ingestion status, and previewing extracted output. |
 
 Out of scope:
 
 | Area | Exclusion |
 | --- | --- |
-| Frontend implementation | HLD describes backend contracts and clients but not UI code. |
+| Public news frontend | The system exposes public output APIs, but does not require a frontend that displays news items or events. |
 | Mobile app implementation | Mobile clients may consume APIs but are not designed here. |
 | Direct AI publishing | AI cannot independently publish, verify, or archive events. |
 | Alternate packaging models | Deployment uses VM/server/PaaS process management and reverse proxy setup. |
@@ -46,6 +49,7 @@ Out of scope:
 ```text
 External Data Sources
   |-- RSS feeds
+  |-- Atom feeds
   |-- News APIs
   |-- Public datasets
   |-- Government alerts
@@ -54,20 +58,21 @@ External Data Sources
         |
         v
 GeoAtlas Backend
+  |-- GeoAtlas source collection API
   |-- Ingestion and normalization
   |-- AI-assisted extraction
   |-- Deduplication and risk scoring
   |-- Human review workflow
-  |-- Published event APIs
+  |-- Public output APIs
         |
-        +--------------------+--------------------+--------------------+
-        |                    |                    |                    |
-        v                    v                    v                    v
-Public Web App         Analyst Console       Admin Console       Internal Ops
-  |-- Feed              |-- Review queue       |-- Sources          |-- Health checks
-  |-- Map               |-- Event edits        |-- Users            |-- Logs
-  |-- Dashboard         |-- Duplicates         |-- Audit logs       |-- Scheduler status
-  |-- Watchlists        |-- Verification       |-- System controls  |-- Backups
+        +--------------------+--------------------+--------------------+--------------------+
+        |                    |                    |                    |                    |
+        v                    v                    v                    v                    v
+GeoAtlas Feed UI         Public API Clients   Analyst Console       Admin Console       Internal Ops
+  |-- Add feed URL      |-- JSON output     |-- Review queue       |-- Sources          |-- Health checks
+  |-- Test detection    |-- Export output   |-- Event edits        |-- Users            |-- Logs
+  |-- Trigger ingest    |-- Poll jobs       |-- Duplicates         |-- Audit logs       |-- Scheduler status
+  |-- Preview output    |-- Map data        |-- Verification       |-- System controls  |-- Backups
 ```
 
 ## 5. High Level Architecture
@@ -124,6 +129,7 @@ Public Web App         Analyst Console       Admin Console       Internal Ops
 | API Gateway/Application Layer | FastAPI routes, request validation, response serialization, auth dependencies, role checks, rate-limit hooks. |
 | Authentication and Authorization | JWT access tokens, refresh tokens, password hashing, user roles, permission matrix, protected admin/analyst routes. |
 | Source Management | Create, update, disable, test, and score external sources. |
+| GeoAtlas Source Console | Minimal internal UI that posts feed URLs to the backend, shows detected feed metadata, starts manual ingestion, and previews normalized output. |
 | Ingestion Scheduler | Runs recurring source fetches, prevents concurrent source jobs, tracks job status, supports manual triggers. |
 | Connector Layer | Source-specific fetchers for RSS, news APIs, datasets, government alerts, and manual submissions. |
 | Raw Data Store | Stores original fetched payloads with source metadata and hashes for traceability. |
@@ -133,7 +139,7 @@ Public Web App         Analyst Console       Admin Console       Internal Ops
 | Deduplication Layer | Finds possible duplicate events using hashes, source URLs, text similarity, time windows, and geospatial proximity. |
 | Risk Scoring Layer | Assigns suggested risk level and score using rule-based factors and confidence inputs. |
 | Review Queue | Routes pending events, duplicate candidates, risk changes, and AI suggestions to analysts/admins. |
-| Event Publishing Layer | Publishes approved events to live feed, map, dashboard, and watchlist APIs. |
+| Output API Layer | Exposes normalized items, extracted event candidates, approved events, map markers, job status, and JSON exports through versioned public endpoints. |
 | Dashboard and Map Layer | Serves aggregate statistics, markers, country counts, bounding-box results, and high-risk alerts. |
 | Watchlist Layer | Lets users track countries, categories, keywords, actors, and events. |
 | Audit and Logging Layer | Records immutable user, admin, ingestion, AI, source, verification, and event changes. |
@@ -211,6 +217,7 @@ Client requests map markers or bounding box
 | Language | Python | Mature backend ecosystem, AI integration support, data processing libraries. |
 | Web framework | FastAPI | Typed APIs, OpenAPI generation, async support, dependency injection. |
 | Database | PostgreSQL | Strong relational model, indexes, JSONB, full-text search, PostGIS path. |
+| Hosted database | Supabase Postgres + PostGIS | Managed PostgreSQL with PostGIS, backups, connection pooling, SQL editor, and optional RLS for public read surfaces. |
 | ORM | SQLAlchemy | Production-grade ORM and query control. |
 | Migrations | Alembic | Standard SQLAlchemy migration tooling. |
 | Cache/coordination | Redis | Fast cache, rate limits, distributed locks, scheduler coordination. |
@@ -232,6 +239,45 @@ Client requests map markers or bounding box
 | Government alerts | Official feed/API polling with high reliability defaults and strict provenance capture. |
 | NGO reports | Feed/API/document metadata processing, source reliability scoring. |
 | Manual input | Analyst/admin-created raw item with explicit provenance and audit trail. |
+
+### GeoAtlas Data Collection Service Boundary
+
+The first standalone service slice is the GeoAtlas data collection API. It can live inside GeoAtlas during development but must be packageable as an independent public API service later.
+
+```text
+GeoAtlas Feed UI
+  -> POST feed URL
+  -> Backend validates URL and blocks unsafe networks
+  -> Backend auto-detects RSS/Atom metadata
+  -> Source is saved in Supabase Postgres
+  -> Scheduler/manual trigger fetches entries
+  -> Backend extracts article content, language, locations, categories, and event candidates
+  -> Normalized records and geospatial hints are stored
+  -> Public API exposes JSON output and exports
+```
+
+Boundaries:
+
+| Boundary | Design |
+| --- | --- |
+| Frontend responsibility | Only manage data collection sources: add RSS links, test detection, enable/disable feeds, trigger ingestion, and preview output. |
+| Backend responsibility | Own feed validation, SSRF protection, content fetching, content extraction, normalization, geocoding hints, persistence, and public output APIs. |
+| Public output | Expose read-only JSON endpoints for normalized feed items, extracted event candidates, approved events, job status, and optional export files. |
+| Database access | API service talks to Supabase using server-side credentials; clients do not receive service-role keys. |
+| Standalone deployment | The service keeps its own `/api/v1/sources`, `/api/v1/ingestion`, `/api/v1/public/*`, health, OpenAPI, migrations, and environment config. |
+| News display UI | Not required; consumers use API responses, export endpoints, or their own frontend. |
+
+Core GeoAtlas data collection routes:
+
+| Route | Audience | Purpose |
+| --- | --- | --- |
+| `POST /api/v1/sources/rss` | Admin UI | Add a feed URL and save detected feed metadata. |
+| `POST /api/v1/sources/detect` | Admin UI | Validate a URL and return feed/site metadata without saving. |
+| `POST /api/v1/sources/{source_id}/ingest` | Admin UI/Ops | Trigger immediate ingestion and return a job id. |
+| `GET /api/v1/ingestion/jobs/{job_id}` | Admin UI/Ops | Read ingestion counters, errors, and latest status. |
+| `GET /api/v1/public/items` | Public/API users | Return normalized fetched items with source and extraction metadata. |
+| `GET /api/v1/public/events` | Public/API users | Return approved or API-visible event records. |
+| `GET /api/v1/public/export.json` | Public/API users | Download filtered output as JSON for external consumers. |
 
 ### AI Integration
 

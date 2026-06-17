@@ -1,5 +1,7 @@
 # GeoAtlas Backend Low Level Design
 
+Project work history is maintained in [documentation.md](documentation.md). The runnable data-collection backend is in [backend/](backend/) and implementation notes are in [docs/GEOATLAS_DATA_COLLECTION_IMPLEMENTATION.md](docs/GEOATLAS_DATA_COLLECTION_IMPLEMENTATION.md).
+
 ## 1. Backend Overview
 
 GeoAtlas is a production backend for monitoring geo-intelligence, crisis, and conflict events from automated external sources and human analyst workflows. The backend owns authentication, authorization, event ingestion, analyst review, event publication, map-ready geospatial APIs, dashboards, watchlists, notifications, and auditability.
@@ -11,6 +13,7 @@ Core responsibilities:
 | Authentication | Register users, authenticate credentials, issue JWT access tokens, rotate refresh tokens, revoke sessions, expose current-user context. |
 | User and role management | Manage users, roles, permissions, account state, analyst/admin privileges, and superadmin-only controls. |
 | Automatic data fetching | Fetch from configured RSS, news API, public dataset, government alert, NGO, and OSINT-style public sources on schedules. |
+| GeoAtlas source collection | Provide a small internal interface for adding RSS/feed links, testing auto-detection, triggering ingestion, and previewing normalized output without building a public news frontend. |
 | Source management | Store source endpoint, connector type, reliability score, fetch interval, rate limit, credentials reference, and status. |
 | Raw data storage | Persist unmodified fetched payloads for traceability, replay, audits, and normalization debugging. |
 | Data normalization | Convert source-specific payloads into a common normalized item format. |
@@ -24,7 +27,8 @@ Core responsibilities:
 | Dashboard statistics | Provide aggregate counts, time series, high-risk alerts, ingestion health, and verification statistics. |
 | Moderation | Support analyst/admin edits, approvals, rejections, merge decisions, and duplicate resolution. |
 | AI assistance | Generate suggestions only: summaries, categories, locations, risk, timelines, duplicate likelihood, and confidence. |
-| Map support | Store event coordinates, country/region metadata, bounding-box queries, and map marker payloads. |
+| Map support | Store event coordinates, country/region metadata, bounding-box queries, and map marker payloads using Supabase Postgres + PostGIS. |
+| Public standalone API | Expose versioned read-only output endpoints for normalized items, extracted event candidates, approved events, exports, OpenAPI docs, and health checks. |
 | Notifications | Notify users about watchlist matches, high-risk events, review assignments, and ingestion failures. |
 | Audit logging | Record immutable security, source, ingestion, review, verification, and event mutation activity. |
 | Scheduled jobs | Register, lock, run, retry, and observe recurring source ingestion jobs. |
@@ -65,7 +69,7 @@ Repository Layer
         |
         v
 Database Layer
-  |-- PostgreSQL
+  |-- Supabase Postgres + PostGIS
   |-- Alembic migrations
   |-- Numeric lat/lon initially
   |-- PostGIS-compatible model for final geospatial expansion
@@ -117,174 +121,30 @@ Architecture layers:
 
 ```text
 geo-atlas/
-  app/
-    main.py
-    core/
+  backend/
+    app/
+      main.py
       config.py
-      security.py
-      permissions.py
-      pagination.py
-      exceptions.py
-      rate_limit.py
-    api/
-      deps.py
-      v1/
-        router.py
-        auth.py
-        users.py
-        sources.py
-        ingestion.py
-        review_queue.py
-        events.py
-        map.py
-        dashboard.py
-        watchlists.py
-        clusters.py
-        ai.py
-        notifications.py
-    models/
-      user.py
-      role.py
-      source.py
-      ingestion.py
-      raw_item.py
-      normalized_item.py
-      event.py
-      watchlist.py
-      cluster.py
-      ai_suggestion.py
-      review_queue.py
-      audit_log.py
-      notification.py
-    schemas/
-      auth.py
-      user.py
-      source.py
-      ingestion.py
-      event.py
-      review_queue.py
-      watchlist.py
-      cluster.py
-      ai.py
-      dashboard.py
-      map.py
-      errors.py
-    services/
-      auth_service.py
-      user_service.py
-      source_service.py
-      ingestion_service.py
-      connector_service.py
-      normalization_service.py
-      event_extraction_service.py
-      deduplication_service.py
-      risk_scoring_service.py
-      verification_service.py
-      review_queue_service.py
-      event_service.py
-      watchlist_service.py
-      cluster_service.py
-      dashboard_service.py
-      map_service.py
-      ai_service.py
-      notification_service.py
-      audit_log_service.py
-    repositories/
-      base.py
-      user_repository.py
-      source_repository.py
-      ingestion_job_repository.py
-      raw_fetched_item_repository.py
-      normalized_item_repository.py
-      event_repository.py
-      event_source_repository.py
-      watchlist_repository.py
-      cluster_repository.py
-      review_queue_repository.py
-      audit_log_repository.py
-    db/
-      base.py
-      session.py
-      transaction.py
-    auth/
-      jwt.py
-      password.py
-      refresh_tokens.py
-      rbac.py
-    ingestion/
-      pipeline.py
-      job_runner.py
-      retry_policy.py
-      locks.py
-      validators.py
-    connectors/
-      base.py
-      rss_connector.py
-      news_api_connector.py
-      dataset_connector.py
-      government_alert_connector.py
-      manual_connector.py
-    normalizers/
-      base.py
-      rss_normalizer.py
-      news_normalizer.py
-      dataset_normalizer.py
-      government_alert_normalizer.py
-      manual_normalizer.py
-    deduplication/
-      fingerprint.py
-      similarity.py
-      candidate_ranker.py
-    scheduler/
-      apscheduler.py
-      job_registry.py
-      manual_trigger.py
-    ai/
-      client.py
-      prompts.py
+      database.py
+      models.py
       schemas.py
-      safety.py
-      retries.py
-    middleware/
-      request_id.py
-      access_log.py
-      error_handler.py
-      security_headers.py
-    logging/
-      config.py
-      formatters.py
-    utils/
-      datetime.py
-      geo.py
-      text.py
-      hashing.py
-      url_safety.py
-    tests/
-      unit/
-      integration/
-      api/
-      ingestion/
-      fixtures/
-  alembic/
-    env.py
-    versions/
-  scripts/
-    create_superadmin.py
-    run_migrations.py
-    backfill_event_fingerprints.py
-    recalculate_risk_scores.py
-  deployment/
-    systemd/
-      geo-atlas-api.service.example
-      geo-atlas-scheduler.service.example
-    nginx/
-      geo-atlas.conf.example
-    env/
-      production.env.example
-    monitoring/
-      logrotate.conf.example
-  pyproject.toml
-  alembic.ini
+      services.py
+      feed_utils.py
+      admin_keys.py
+    db/
+      geoatlas_data_collection_schema.sql
+    scripts/
+      generate_admin_key.py
+    static/
+      index.html
+      styles.css
+      app.js
+    requirements.txt
+    .env.example
+  docs/
+    GEOATLAS_DATA_COLLECTION_IMPLEMENTATION.md
+  documentation.md
+  HLD.md
   README.md
 ```
 
@@ -292,31 +152,71 @@ Folder responsibilities:
 
 | Folder | Responsibility |
 | --- | --- |
-| `app/main.py` | Creates FastAPI app, registers middleware, routers, exception handlers, startup checks. |
-| `app/core/` | Configuration, security helpers, permission constants, exception types, shared utilities. |
-| `app/api/v1/` | Versioned route modules grouped by domain. |
-| `app/models/` | SQLAlchemy ORM models and relationships. |
-| `app/schemas/` | Pydantic request/response DTOs. |
-| `app/services/` | Domain workflows and business rules. |
-| `app/repositories/` | Database access classes and optimized queries. |
-| `app/db/` | Engine, sessions, base metadata, transaction helpers. |
-| `app/auth/` | JWT, password hashing, refresh token storage, RBAC enforcement. |
-| `app/ingestion/` | Pipeline orchestration, retry policy, locks, ingestion validation. |
-| `app/connectors/` | Source-specific external fetchers. |
-| `app/normalizers/` | Source-specific to normalized-item mapping. |
-| `app/deduplication/` | Fingerprints, text/location/time similarity, duplicate ranking. |
-| `app/scheduler/` | Scheduled job registration and execution. |
-| `app/ai/` | AI client wrapper, prompt templates, response schemas, safety controls. |
-| `app/middleware/` | Request id, access logs, error handler, security headers. |
-| `app/logging/` | Structured logging setup. |
-| `app/tests/` | Unit, integration, API, ingestion, and fixture tests. |
-| `alembic/` | Database migration environment and version files. |
-| `scripts/` | Operational maintenance scripts. |
-| `deployment/` | VM/PaaS deployment examples for process manager, proxy, env, and logs. |
+| `backend/app/main.py` | Creates FastAPI app, registers routes, serves the source console, and exposes health checks. |
+| `backend/app/admin_keys.py` | Generates, hashes, stores, and validates database-backed admin API keys. |
+| `backend/app/feed_utils.py` | RSS/Atom fetching, URL safety, feed discovery, parsing, and simple extraction helpers. |
+| `backend/app/models.py` | SQLAlchemy ORM models and relationships for the current data-collection slice. |
+| `backend/app/schemas.py` | Pydantic request/response DTOs. |
+| `backend/app/services.py` | Source detection, source creation, ingestion, normalization, and event candidate workflows. |
+| `backend/db/` | Supabase Postgres + PostGIS schema SQL. |
+| `backend/scripts/` | Operational scripts such as admin key generation. |
+| `backend/static/` | Internal GeoAtlas Source Console UI. |
+| `docs/` | Implementation notes and supporting documentation. |
 
 ## 4. Automatic Data Fetching Design
 
 Automatic fetching is a core backend capability. Source configuration drives scheduler registration, connector selection, rate limiting, retry behavior, and review routing.
+
+### GeoAtlas Source Collection Module
+
+GeoAtlas Data Collection is the first standalone data-collection slice of GeoAtlas. It lets an internal user add RSS or Atom feed links from a small frontend, while the backend performs feed detection, source validation, content extraction, normalization, geospatial hinting, and public API output.
+
+This module deliberately does not require a public news-display frontend. The frontend only manages source addition and operational visibility. Consumers get output through JSON APIs, export endpoints, and OpenAPI documentation.
+
+```text
+Internal GeoAtlas Feed UI
+  -> Add RSS/Atom URL
+  -> Backend validates URL and blocks unsafe/private networks
+  -> Backend detects feed type, title, site URL, language, favicon, and update cadence
+  -> Source is saved in Supabase Postgres
+  -> Scheduler or manual trigger fetches entries
+  -> Raw payloads are stored unchanged
+  -> Article content is extracted and normalized
+  -> Locations/categories/entities/event candidates are detected
+  -> Output is exposed through public API endpoints
+```
+
+Frontend scope:
+
+| Screen | Controls | Backend APIs |
+| --- | --- | --- |
+| Add feed | URL input, source name override, reliability score, interval, enabled toggle | `POST /api/v1/sources/detect`, `POST /api/v1/sources/rss` |
+| Source list | Status, last success/failure, enabled toggle, delete/archive action | `GET /api/v1/sources`, `PATCH /api/v1/sources/{source_id}` |
+| Source detail | Detected metadata, recent jobs, recent normalized items, latest errors | `GET /api/v1/sources/{source_id}`, `GET /api/v1/ingestion/jobs` |
+| Manual run | Trigger button, progress state, counters | `POST /api/v1/sources/{source_id}/ingest`, `GET /api/v1/ingestion/jobs/{job_id}` |
+| Output preview | Table/JSON view for normalized items and candidate events | `GET /api/v1/public/items`, `GET /api/v1/public/events` |
+
+Public output surfaces:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/public/items` | Paginated normalized feed items with source, canonical URL, title, summary, language, published time, extraction status, and geospatial hints. |
+| `GET /api/v1/public/items/{item_id}` | Single normalized item with raw-source references and extraction metadata. |
+| `GET /api/v1/public/events` | API-visible event candidates or approved events, filterable by country, category, date, risk, and bbox. |
+| `GET /api/v1/public/export.json` | Download filtered items/events as JSON for downstream consumers. |
+| `GET /api/v1/public/sources` | Public-safe source catalog without secrets or internal error details. |
+| `GET /openapi.json` | Machine-readable public API contract for standalone integration. |
+
+Standalone API requirements:
+
+| Requirement | Design |
+| --- | --- |
+| Independent deployability | Keep data collection routes, schemas, migrations, workers, and environment variables independent enough to run as a separate FastAPI service. |
+| Supabase boundary | API uses server-side Supabase Postgres credentials; browser clients never receive service-role keys. |
+| Public read safety | Public endpoints return sanitized fields only and never expose raw private metadata, credentials, stack traces, or admin-only notes. |
+| Output without frontend | Every collected item should be retrievable by API, export, or direct database read model. |
+| API documentation | OpenAPI docs must show examples for adding feeds, triggering ingestion, polling jobs, and reading output. |
+| Rate limits | Public endpoints use IP/API-key limits; admin ingestion endpoints require auth and stricter limits. |
 
 ### Source Configuration
 
@@ -336,6 +236,12 @@ Key source fields:
 | `enabled` | Source can be paused without deletion. |
 | `country_scope` | Optional country or region scope. |
 | `category_scope` | Optional categories expected from the source. |
+| `detected_title` | Feed title detected from RSS/Atom metadata. |
+| `detected_site_url` | Canonical website URL linked from the feed. |
+| `detected_feed_type` | `rss`, `atom`, or compatible feed format. |
+| `detected_language` | Feed-level language hint when available. |
+| `etag` | Last feed ETag for conditional requests. |
+| `last_modified` | Last feed `Last-Modified` value for conditional requests. |
 
 ### Connector Types
 
@@ -367,6 +273,35 @@ unique(source_id, content_hash) for sources without stable item ids
 
 Ingestion logs record job start, connector request metadata, status changes, retry count, fetched count, duplicate raw count, normalized count, pending-event count, failures, and duration.
 
+### RSS/Atom Auto-Detection
+
+The feed-add flow supports both direct feed URLs and website URLs.
+
+Detection order:
+
+| Step | Behavior |
+| --- | --- |
+| 1. Validate URL | Accept only `http` and `https`; reject localhost, private IPs, link-local, metadata services, and unsupported schemes. |
+| 2. Fetch headers | Use short timeout, size limits, redirect validation, and content-type checks. |
+| 3. Parse direct feed | If response is RSS/Atom/XML, parse channel/feed metadata and sample entries. |
+| 4. Discover feed links | If response is HTML, inspect `<link rel="alternate" type="application/rss+xml">` and Atom equivalents. |
+| 5. Score candidates | Prefer valid feeds with recent entries, stable GUIDs, canonical links, and parseable published dates. |
+| 6. Return preview | Show detected title, site URL, feed URL, language, latest item titles, update cadence, and warnings. |
+| 7. Save source | Store selected feed URL and detection metadata only after user confirmation. |
+
+Content extraction:
+
+| Field | Detection |
+| --- | --- |
+| Canonical URL | Entry link, canonical HTML tag, or feed item URL. |
+| Title | Feed entry title with HTML stripped and whitespace normalized. |
+| Body | Entry content, summary, or fetched article body using a readability-style extractor. |
+| Published time | Entry published/updated timestamp normalized to UTC. |
+| Language | Feed language, article metadata, or text-language detection. |
+| Image/media | Feed enclosures, Open Graph image, or article image metadata. |
+| Location hints | Place names, country names, coordinates in metadata, and geocoding candidates. |
+| Category hints | Feed categories, tags, keywords, and classifier output. |
+
 ## 5. Data Ingestion Pipeline
 
 Pipeline stages:
@@ -391,7 +326,24 @@ AI is advisory only. It cannot publish, verify, delete, or archive events. Every
 
 ## 6. Database Design
 
-Use PostgreSQL with Alembic migrations. For initial implementation, store `latitude` and `longitude` as `NUMERIC(9,6)` and add composite indexes for map queries. For final deployment with dense geospatial queries, enable PostGIS and add a `GEOGRAPHY(Point, 4326)` column on `event_locations`, kept in sync with lat/lon.
+Use Supabase Postgres with Alembic migrations and PostGIS enabled. Store `latitude` and `longitude` as `NUMERIC(9,6)` for simple projections and keep a `GEOGRAPHY(Point, 4326)` column on location tables for distance, bounding-box, and map queries.
+
+Required Supabase extensions:
+
+```sql
+create extension if not exists postgis;
+create extension if not exists pg_trgm;
+create extension if not exists unaccent;
+```
+
+Supabase security boundary:
+
+| Concern | Design |
+| --- | --- |
+| API database access | FastAPI uses server-side database credentials or Supabase service role in backend-only environment variables. |
+| Browser access | The GeoAtlas source console calls FastAPI, not Supabase directly, unless a later read-only anon policy is deliberately added. |
+| Public reads | Prefer FastAPI public endpoints for filtering, sanitization, rate limiting, and stable response contracts. |
+| Row-level security | Enable RLS for tables exposed directly through Supabase; keep write tables service-only by default. |
 
 ### Common Columns
 
@@ -1761,6 +1713,9 @@ saved_events
 /api/v1/clusters/*
 /api/v1/ai/*
 /api/v1/notifications/*
+/api/v1/public/*
+/health
+/openapi.json
 ```
 
 ### Final Ingestion Pipeline List
